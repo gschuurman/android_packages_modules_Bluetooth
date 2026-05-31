@@ -1274,6 +1274,7 @@ class BluetoothManagerService {
         Log.d(TAG, "handleSwitchUser()");
         if (mUser.equals(mNextUser)) {
             Log.d(TAG, "Skip fast switch on same user=" + mUser);
+            mNextUser = null;
             return;
         }
 
