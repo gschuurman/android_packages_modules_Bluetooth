@@ -484,25 +484,32 @@ class MapClientContent {
         StringBuilder threadsBuilder = new StringBuilder();
 
         Uri uri = Threads.CONTENT_URI.buildUpon().appendQueryParameter("simple", "true").build();
-        try (Cursor threadCursor = resolver.query(uri, null, null, null, null)) {
-            while (threadCursor.moveToNext()) {
-                threadsBuilder
-                        .append(threadCursor.getInt(threadCursor.getColumnIndex(Threads._ID)))
-                        .append(", ");
+        // Best-effort cleanup, also run from the MapClientService constructor at boot. The
+        // Telephony provider may not be able to open its database yet (SQLITE_CANTOPEN); an
+        // exception here would take down the whole Bluetooth process, so skip it instead.
+        try {
+            try (Cursor threadCursor = resolver.query(uri, null, null, null, null)) {
+                while (threadCursor != null && threadCursor.moveToNext()) {
+                    threadsBuilder
+                            .append(threadCursor.getInt(threadCursor.getColumnIndex(Threads._ID)))
+                            .append(", ");
+                }
             }
-        }
 
-        resolver.delete(
-                Sms.CONTENT_URI,
-                Sms.SUBSCRIPTION_ID + " =? ",
-                new String[] {Integer.toString(subscriptionId)});
-        resolver.delete(
-                Mms.CONTENT_URI,
-                Mms.SUBSCRIPTION_ID + " =? ",
-                new String[] {Integer.toString(subscriptionId)});
-        if (threadsBuilder.length() > 2) {
-            String threads = threadsBuilder.substring(0, threadsBuilder.length() - 2);
-            resolver.delete(Threads.CONTENT_URI, Threads._ID + " IN (" + threads + ")", null);
+            resolver.delete(
+                    Sms.CONTENT_URI,
+                    Sms.SUBSCRIPTION_ID + " =? ",
+                    new String[] {Integer.toString(subscriptionId)});
+            resolver.delete(
+                    Mms.CONTENT_URI,
+                    Mms.SUBSCRIPTION_ID + " =? ",
+                    new String[] {Integer.toString(subscriptionId)});
+            if (threadsBuilder.length() > 2) {
+                String threads = threadsBuilder.substring(0, threadsBuilder.length() - 2);
+                resolver.delete(Threads.CONTENT_URI, Threads._ID + " IN (" + threads + ")", null);
+            }
+        } catch (RuntimeException e) {
+            Log.w(TAG, "[AllDevices] clearMessages: telephony provider not available", e);
         }
     }
 
