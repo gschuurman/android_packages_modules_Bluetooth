@@ -233,6 +233,7 @@ bool bta_hf_client_hdl_event(const BT_HDR_RIGID* p_msg);
 void bta_hf_client_sm_execute(uint16_t event, tBTA_HF_CLIENT_DATA* p_data);
 void bta_hf_client_slc_seq(tBTA_HF_CLIENT_CB* client_cb, bool error);
 bool bta_hf_client_allocate_handle(const RawAddress& bd_addr, uint16_t* p_handle);
+tBTA_HF_CLIENT_CB* bta_hf_client_take_over_unconnected_cb(const RawAddress& bd_addr);
 void bta_hf_client_app_callback(uint16_t event, tBTA_HF_CLIENT* data);
 void bta_hf_client_collision_cback(tBTA_SYS_CONN_STATUS status, tBTA_SYS_ID id, uint8_t app_id,
                                    const RawAddress& peer_addr);

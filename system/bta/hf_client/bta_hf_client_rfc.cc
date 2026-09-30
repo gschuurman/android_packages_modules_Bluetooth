@@ -106,10 +106,15 @@ static void bta_hf_client_mgmt_cback(const tPORT_RESULT code, uint16_t port_hand
         log::error("PORT_CheckConnection returned {}", status);
       }
 
-      // Since we accepted a remote request we should allocate a handle first.
-      uint16_t tmp_handle = -1;
-      bta_hf_client_allocate_handle(peer_addr, &tmp_handle);
-      client_cb = bta_hf_client_find_cb_by_handle(tmp_handle);
+      // A block for this peer that isn't connected is left over from our own attempt, e.g. after
+      // an RFCOMM collision: take it over, otherwise HFP never connects to this peer again.
+      client_cb = bta_hf_client_take_over_unconnected_cb(peer_addr);
+      if (client_cb == NULL) {
+        // Since we accepted a remote request we should allocate a handle first.
+        uint16_t tmp_handle = -1;
+        bta_hf_client_allocate_handle(peer_addr, &tmp_handle);
+        client_cb = bta_hf_client_find_cb_by_handle(tmp_handle);
+      }
 
       // If allocation fails then we abort.
       if (client_cb == NULL) {

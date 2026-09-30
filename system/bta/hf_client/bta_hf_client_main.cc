@@ -38,6 +38,7 @@
 #include "osi/include/allocator.h"
 #include "stack/include/bt_hdr.h"
 #include "stack/include/btm_client_interface.h"
+#include "stack/include/port_api.h"
 #include "stack/include/sdp_api.h"
 
 using namespace bluetooth::legacy::stack::sdp;
@@ -590,6 +591,48 @@ bool bta_hf_client_allocate_handle(const RawAddress& bd_addr, uint16_t* p_handle
 
   return false;
   log::error("all control blocks in use!");
+}
+
+/*******************************************************************************
+ *
+ * Function         bta_hf_client_take_over_unconnected_cb
+ *
+ * Description      For an incoming RFCOMM connection from bd_addr: returns the
+ *                  control block for that peer if it exists but isn't
+ *                  connected (left over from our own connection attempt, e.g.
+ *                  after an RFCOMM collision), reset to INIT so the incoming
+ *                  connection is accepted on it. Our pending attempt (SDP,
+ *                  collision timer) is cancelled: the peer's connection wins.
+ *
+ * Returns          The control block, or NULL if there is none to take over
+ *
+ ******************************************************************************/
+tBTA_HF_CLIENT_CB* bta_hf_client_take_over_unconnected_cb(const RawAddress& bd_addr) {
+  tBTA_HF_CLIENT_CB* client_cb = bta_hf_client_find_cb_by_bda(bd_addr);
+  if (client_cb == NULL || (client_cb->state != BTA_HF_CLIENT_INIT_ST &&
+                            client_cb->state != BTA_HF_CLIENT_OPENING_ST)) {
+    return NULL;
+  }
+  log::warn("taking over the unconnected CB (state {}) for the incoming connection from {}",
+            client_cb->state, bd_addr);
+  alarm_cancel(client_cb->collision_timer);
+  if (client_cb->p_disc_db) {
+    if (!get_legacy_stack_sdp_api()->service.SDP_CancelServiceSearch(client_cb->p_disc_db)) {
+      log::warn("Unable to cancel SDP service discovery peer:{}", bd_addr);
+    }
+    osi_free_and_reset((void**)&client_cb->p_disc_db);
+  }
+  // Drop our own outgoing RFCOMM connection too: left open, the peer sees two HFP connections and
+  // closes one, and our port blocks every later attempt ("already at opened state").
+  if (client_cb->conn_handle != 0) {
+    log::warn("removing our outgoing RFCOMM connection handle:{}", client_cb->conn_handle);
+    if (RFCOMM_RemoveConnection(client_cb->conn_handle) != PORT_SUCCESS) {
+      log::warn("Unable to remove RFCOMM connection handle:{}", client_cb->conn_handle);
+    }
+    client_cb->conn_handle = 0;
+  }
+  client_cb->state = BTA_HF_CLIENT_INIT_ST;
+  return client_cb;
 }
 
 /*******************************************************************************
