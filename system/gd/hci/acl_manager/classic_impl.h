@@ -378,7 +378,6 @@ public:
   void on_connection_complete(EventView packet) {
     ConnectionCompleteView connection_complete = ConnectionCompleteView::Create(packet);
     log::assert_that(connection_complete.IsValid(), "assert failed: connection_complete.IsValid()");
-    auto status = connection_complete.GetStatus();
     auto address = connection_complete.GetBdAddr();
 
     acl_scheduler_.ReportAclConnectionCompletion(
@@ -388,17 +387,28 @@ public:
             handler_->BindOnceOn(this, &classic_impl::create_and_announce_connection,
                                  connection_complete, Role::PERIPHERAL,
                                  Initiator::REMOTE_INITIATED),
-            handler_->BindOnce(
-                    [=](RemoteNameRequestModule* remote_name_request_module, Address address,
-                        ErrorCode status, std::string valid_incoming_addresses) {
-                      log::warn("No matching connection to {} ({})", address,
-                                ErrorCodeText(status));
-                      log::assert_that(status != ErrorCode::SUCCESS,
-                                       "No prior connection request for {} expecting:{}", address,
-                                       valid_incoming_addresses.c_str());
-                      remote_name_request_module->ReportRemoteNameRequestCancellation(address);
-                    },
-                    base::Unretained(&remote_name_request_module_), address, status));
+            handler_->BindOnceOn(this, &classic_impl::on_unmatched_connection_complete,
+                                 connection_complete));
+  }
+
+  // A Connection Complete that matches no pending request. When both sides page each other, some
+  // controllers (BCM4359) report our page as failed (CONNECTION_ALREADY_EXISTS) and then the
+  // peer's connection as a success; the scheduler has already dropped the incoming request with
+  // the failure, so the success lands here. It is the peer's connection: take it instead of
+  // aborting the stack.
+  void on_unmatched_connection_complete(ConnectionCompleteView connection_complete,
+                                        std::string valid_incoming_addresses) {
+    auto status = connection_complete.GetStatus();
+    auto address = connection_complete.GetBdAddr();
+    if (status == ErrorCode::SUCCESS) {
+      log::warn("No prior connection request for {} (expecting: {}), taking it as incoming",
+                address, valid_incoming_addresses);
+      create_and_announce_connection(connection_complete, Role::PERIPHERAL,
+                                     Initiator::REMOTE_INITIATED);
+      return;
+    }
+    log::warn("No matching connection to {} ({})", address, ErrorCodeText(status));
+    remote_name_request_module_.ReportRemoteNameRequestCancellation(address);
   }
 
   void cancel_connect(Address address) {
